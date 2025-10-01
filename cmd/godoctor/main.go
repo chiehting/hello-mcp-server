@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
+	"net/http"
 	"os"
 	"os/exec"
 
@@ -61,10 +63,22 @@ func main() {
 		return nil, GodocResult{Output: string(output)}, nil
 	})
 
-	// Run the server on the stdio transport.
-	if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
-		fmt.Fprintf(os.Stderr, "MCP server error: %v\n", err)
-		os.Exit(1)
+	// Create an HTTP handler for the MCP server.
+	httpHandler := mcp.NewStreamableHTTPHandler(
+		func(r *http.Request) *mcp.Server { return server },
+		nil,
+	)
+
+	// Determine the port to listen on.
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	log.Printf("MCP server listening on :%s", port)
+	// Start the HTTP server.
+	if err := http.ListenAndServe(fmt.Sprintf(":%s", port), httpHandler); err != nil {
+		log.Fatalf("MCP server failed: %v", err)
 	}
 }
 

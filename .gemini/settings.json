@@ -1,7 +1,8 @@
 {
   "mcpServers": {
     "godoctor": {
-      "command": "./bin/godoctor"
+      // "command": "./bin/godoctor"
+      "httpUrl": "http://localhost:8080"
     }
   }
 }

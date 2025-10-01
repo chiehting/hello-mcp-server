@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
@@ -15,8 +14,10 @@ import (
 var rootCmd = &cobra.Command{
 	Use:   "godoctor-cli",
 	Short: "godoctor-cli is a CLI client for the godoctor MCP server",
-	Long:  `A CLI client that interacts with the godoctor MCP server to call various tools.`, 
+	Long:  `A CLI client that interacts with the godoctor MCP server to call various tools.`,
 }
+
+var serverAddr string
 
 func executeTool(toolName string, args map[string]any) {
 	ctx := context.Background()
@@ -26,8 +27,8 @@ func executeTool(toolName string, args map[string]any) {
 		nil,
 	)
 
-	// Assuming the godoctor server executable is in the same bin directory
-	transport := &mcp.CommandTransport{Command: exec.Command("./bin/godoctor")}
+	// transport := &mcp.CommandTransport{Command: exec.Command("./bin/godoctor")}
+	transport := &mcp.StreamableClientTransport{Endpoint: serverAddr}
 	session, err := client.Connect(ctx, transport, nil)
 	if err != nil {
 		log.Fatalf("Failed to connect to MCP server: %v", err)
@@ -68,6 +69,8 @@ func executeTool(toolName string, args map[string]any) {
 }
 
 func init() {
+	rootCmd.PersistentFlags().StringVarP(&serverAddr, "server-addr", "a", "http://localhost:8080", "Address of the MCP server")
+
 	// helloWorld command
 	helloWorldCmd := &cobra.Command{
 		Use:   "helloWorld",
@@ -93,6 +96,7 @@ func init() {
 	}
 	godocCmd.Flags().StringVarP(&godocPackage, "package", "p", "", "The Go package to document (e.g., fmt)")
 	godocCmd.Flags().StringVarP(&godocSymbol, "symbol", "s", "", "The symbol within the package to document (optional)")
+	godocCmd.MarkFlagRequired("package")
 	rootCmd.AddCommand(godocCmd)
 }
 
