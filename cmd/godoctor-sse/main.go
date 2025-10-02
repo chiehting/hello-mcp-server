@@ -32,19 +32,21 @@ type GodocResult struct {
 }
 
 func main() {
-	server := mcp.NewServer(
-		&mcp.Implementation{Name: "godoctor"},
-		nil,
-	)
 
-	mcp.AddTool(server, &mcp.Tool{
+	server1 := mcp.NewServer(&mcp.Implementation{Name: "helloWorld"}, nil)
+	mcp.AddTool(server1, &mcp.Tool{
 		Name:        "helloWorld",
 		Description: "A simple tool that returns 'Hello, World!'.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args HelloWorldArgs) (*mcp.CallToolResult, HelloWorldResult, error) {
-		return nil, HelloWorldResult{Message: "Hello, World! Hi Justin!"}, nil
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: "Hello, World! Hi Justin!"},
+			},
+		}, HelloWorldResult{Message: "Hello, World! Hi Justin!"}, nil
 	})
 
-	mcp.AddTool(server, &mcp.Tool{
+	server2 := mcp.NewServer(&mcp.Implementation{Name: "godoc"}, nil)
+	mcp.AddTool(server2, &mcp.Tool{
 		Name:        "godoc",
 		Description: "Invokes the 'go doc' command to retrieve documentation for a Go package or symbol.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args GodocArgs) (*mcp.CallToolResult, GodocResult, error) {
@@ -60,14 +62,12 @@ func main() {
 			return nil, GodocResult{Output: string(output), Error: err.Error()}, nil
 		}
 
-		return nil, GodocResult{Output: string(output)}, nil
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: string(output)},
+			},
+		}, GodocResult{Output: string(output)}, nil
 	})
-
-	// Create an HTTP handler for the MCP server.
-	httpHandler := mcp.NewStreamableHTTPHandler(
-		func(r *http.Request) *mcp.Server { return server },
-		nil,
-	)
 
 	// Determine the port to listen on.
 	port := os.Getenv("PORT")
@@ -77,16 +77,20 @@ func main() {
 
 	log.Printf("MCP server listening on :%s", port)
 	// Start the HTTP server with logging middleware
-	loggedHandler := loggingMiddleware(httpHandler)
-	if err := http.ListenAndServe(fmt.Sprintf(":%s", port), loggedHandler); err != nil {
-		log.Fatalf("MCP server failed: %v", err)
-	}
-}
 
-// loggingMiddleware logs all incoming requests
-func loggingMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("MCP Server: Received %s request for path: %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
-		next.ServeHTTP(w, r)
-	})
+	// Create an HTTP handler for the MCP server.
+	handler := mcp.NewSSEHandler(func(request *http.Request) *mcp.Server {
+		url := request.URL.Path
+		log.Printf("Handling request for URL %s\n", url)
+		switch url {
+		case "/helloWorld":
+			return server1
+		case "/godoc":
+			return server2
+		default:
+			return nil
+		}
+	}, nil)
+	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", port), handler))
+
 }
