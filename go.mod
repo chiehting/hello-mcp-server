@@ -1,4 +1,4 @@
-module github.com/modelcontextprotocol/godoctor
+module github.com/chiehting/hello-mcp-server
 
 go 1.24.2
 

@@ -2,107 +2,68 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"log"
 	"os"
+	"os/exec"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/spf13/cobra"
 )
 
-var rootCmd = &cobra.Command{
-	Use:   "godoctor-cli",
-	Short: "godoctor-cli is a CLI client for the godoctor MCP server",
-	Long:  `A CLI client that interacts with the godoctor MCP server to call various tools.`,
+// HelloWorldArgs represents the arguments for the helloWorld tool. Since it has no parameters, it's an empty struct.
+type HelloWorldArgs struct{}
+
+// HelloWorldResult represents the result of the helloWorld tool.
+type HelloWorldResult struct {
+	Message string `json:"message"`
 }
 
-var serverAddr string
-
-func executeTool(toolName string, args map[string]any) {
-	ctx := context.Background()
-
-	client := mcp.NewClient(
-		&mcp.Implementation{Name: "godoctor-cli"},
-		nil,
-	)
-
-	// transport := &mcp.CommandTransport{Command: exec.Command("./bin/godoctor")}
-	transport := &mcp.StreamableClientTransport{Endpoint: serverAddr}
-	session, err := client.Connect(ctx, transport, nil)
-	if err != nil {
-		log.Fatalf("Failed to connect to MCP server: %v", err)
-	}
-	defer session.Close()
-
-	params := &mcp.CallToolParams{
-		Name:      toolName,
-		Arguments: args,
-	}
-
-	res, err := session.CallTool(ctx, params)
-	if err != nil {
-		log.Fatalf("Tool call failed: %v", err)
-	}
-
-	// Handle unstructured content first
-	for _, content := range res.Content {
-		if textContent, ok := content.(*mcp.TextContent); ok {
-			fmt.Println(textContent.Text)
-		} else {
-			// Handle other content types if necessary
-			fmt.Printf("Received content of type %T: %+v\n", content, content)
-		}
-	}
-
-	// Handle structured content
-	if res.StructuredContent != nil {
-		// Attempt to marshal and pretty print the structured content
-		prettyJSON, err := json.MarshalIndent(res.StructuredContent, "", "  ")
-		if err != nil {
-			log.Printf("Warning: Could not pretty print structured content: %v", err)
-			fmt.Printf("Structured Content: %+v\n", res.StructuredContent)
-		} else {
-			fmt.Println(string(prettyJSON))
-		}
-	}
+// GodocArgs represents the arguments for the godoc tool.
+type GodocArgs struct {
+	Package string `json:"package" jsonschema:"the Go package to document"`
+	Symbol  string `json:"symbol,omitempty" jsonschema:"the symbol within the package to document (optional)"`
 }
 
-func init() {
-	rootCmd.PersistentFlags().StringVarP(&serverAddr, "server-addr", "a", "http://localhost:8080", "Address of the MCP server")
-
-	// helloWorld command
-	helloWorldCmd := &cobra.Command{
-		Use:   "helloWorld",
-		Short: "Calls the helloWorld tool",
-		Run: func(cmd *cobra.Command, args []string) {
-			executeTool("helloWorld", nil)
-		},
-	}
-	rootCmd.AddCommand(helloWorldCmd)
-
-	// godoc command
-	var godocPackage string
-	var godocSymbol string
-	godocCmd := &cobra.Command{
-		Use:   "godoc",
-		Short: "Calls the godoc tool",
-		Run: func(cmd *cobra.Command, args []string) {
-			if godocPackage == "" {
-				log.Fatal("Error: --package is required for godoc tool")
-			}
-			executeTool("godoc", map[string]any{"package": godocPackage, "symbol": godocSymbol})
-		},
-	}
-	godocCmd.Flags().StringVarP(&godocPackage, "package", "p", "", "The Go package to document (e.g., fmt)")
-	godocCmd.Flags().StringVarP(&godocSymbol, "symbol", "s", "", "The symbol within the package to document (optional)")
-	godocCmd.MarkFlagRequired("package")
-	rootCmd.AddCommand(godocCmd)
+// GodocResult represents the result of the godoc tool.
+type GodocResult struct {
+	Output string `json:"output"`
+	Error  string `json:"error,omitempty"`
 }
 
 func main() {
-	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+	server := mcp.NewServer(
+		&mcp.Implementation{Name: "godoctor"},
+		nil,
+	)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "helloWorld",
+		Description: "A simple tool that returns 'Hello, World!'.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args HelloWorldArgs) (*mcp.CallToolResult, HelloWorldResult, error) {
+		return nil, HelloWorldResult{Message: "Hello, World!"}, nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "godoc",
+		Description: "Invokes the 'go doc' command to retrieve documentation for a Go package or symbol.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args GodocArgs) (*mcp.CallToolResult, GodocResult, error) {
+		cmdArgs := []string{"doc", args.Package}
+		if args.Symbol != "" {
+			cmdArgs = append(cmdArgs, args.Symbol)
+		}
+
+		cmd := exec.Command("go", cmdArgs...)
+		output, err := cmd.CombinedOutput()
+
+		if err != nil {
+			return nil, GodocResult{Output: string(output), Error: err.Error()}, nil
+		}
+
+		return nil, GodocResult{Output: string(output)}, nil
+	})
+
+	// Run the server on the stdio transport.
+	if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
+		fmt.Fprintf(os.Stderr, "MCP server error: %v\n", err)
 		os.Exit(1)
 	}
 }
